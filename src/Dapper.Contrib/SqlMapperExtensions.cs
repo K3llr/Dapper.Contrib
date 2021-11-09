@@ -40,7 +40,7 @@ namespace Dapper.Contrib.Extensions
             /// <returns>The table name for the given <paramref name="type"/>.</returns>
             string GetTableName(Type type);
         }
-
+        
         /// <summary>
         /// The function to get a database type from the given <see cref="IDbConnection"/>.
         /// </summary>
@@ -71,6 +71,11 @@ namespace Dapper.Contrib.Extensions
                 ["fbconnection"] = new FbAdapter()
             };
 
+        /// <summary>
+        /// 
+        /// </summary>
+        public static Func<Type, List<PropertyInfo>> ComputedPropertiesMapper { get; set; } 
+
         private static List<PropertyInfo> ComputedPropertiesCache(Type type)
         {
             if (ComputedProperties.TryGetValue(type.TypeHandle, out IEnumerable<PropertyInfo> pi))
@@ -78,12 +83,20 @@ namespace Dapper.Contrib.Extensions
                 return pi.ToList();
             }
 
-            var computedProperties = TypePropertiesCache(type).Where(p => p.GetCustomAttributes(true).Any(a => a is ComputedAttribute)).ToList();
+            var computedProperties = ComputedPropertiesMapper != null
+                ? ComputedPropertiesMapper(type)
+                : TypePropertiesCache(type).Where(p => p.GetCustomAttributes(true).Any(a => a is ComputedAttribute))
+                    .ToList();
 
             ComputedProperties[type.TypeHandle] = computedProperties;
             return computedProperties;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        public static Func<Type, List<PropertyInfo>> ExplicitKeyPropertiesMapper  { get; set; } 
+        
         private static List<PropertyInfo> ExplicitKeyPropertiesCache(Type type)
         {
             if (ExplicitKeyProperties.TryGetValue(type.TypeHandle, out IEnumerable<PropertyInfo> pi))
@@ -91,12 +104,20 @@ namespace Dapper.Contrib.Extensions
                 return pi.ToList();
             }
 
-            var explicitKeyProperties = TypePropertiesCache(type).Where(p => p.GetCustomAttributes(true).Any(a => a is ExplicitKeyAttribute)).ToList();
+            var explicitKeyProperties = ExplicitKeyPropertiesMapper != null 
+                ? ExplicitKeyPropertiesMapper(type)
+                : TypePropertiesCache(type).Where(p => p.GetCustomAttributes(true).Any(a => a is ExplicitKeyAttribute)).ToList();
 
             ExplicitKeyProperties[type.TypeHandle] = explicitKeyProperties;
             return explicitKeyProperties;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        public static Func<Type, List<PropertyInfo>> KeyPropertiesMapper  { get; set; } 
+            = type => TypePropertiesCache(type).Where(p => p.GetCustomAttributes(true).Any(a => a is ExplicitKeyAttribute)).ToList();
+        
         private static List<PropertyInfo> KeyPropertiesCache(Type type)
         {
             if (KeyProperties.TryGetValue(type.TypeHandle, out IEnumerable<PropertyInfo> pi))
@@ -104,15 +125,23 @@ namespace Dapper.Contrib.Extensions
                 return pi.ToList();
             }
 
-            var allProperties = TypePropertiesCache(type);
-            var keyProperties = allProperties.Where(p => p.GetCustomAttributes(true).Any(a => a is KeyAttribute)).ToList();
-
-            if (keyProperties.Count == 0)
+            List<PropertyInfo> keyProperties; 
+            if (KeyPropertiesMapper != null)
             {
-                var idProp = allProperties.Find(p => string.Equals(p.Name, "id", StringComparison.CurrentCultureIgnoreCase));
-                if (idProp != null && !idProp.GetCustomAttributes(true).Any(a => a is ExplicitKeyAttribute))
+                keyProperties = KeyPropertiesMapper(type);
+            }
+            else
+            {
+                var allProperties = TypePropertiesCache(type);
+                keyProperties = allProperties.Where(p => p.GetCustomAttributes(true).Any(a => a is KeyAttribute)).ToList();
+
+                if (keyProperties.Count == 0)
                 {
-                    keyProperties.Add(idProp);
+                    var idProp = allProperties.Find(p => string.Equals(p.Name, "id", StringComparison.CurrentCultureIgnoreCase));
+                    if (idProp != null && !ExplicitKeyPropertiesCache(type).Any(p => string.Equals(p.Name, "id", StringComparison.CurrentCultureIgnoreCase)))
+                    {
+                        keyProperties.Add(idProp);
+                    }
                 }
             }
 
